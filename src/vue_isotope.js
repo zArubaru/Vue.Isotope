@@ -12,6 +12,18 @@
       return elmt.__underlying_element
     }
 
+    // Reports errors
+    function reportError(message, elmt) {
+      const warningMessage = message ? `Warning template error: isotope ${message}` : 'Warning template error: isotope undefined error'
+      if (elmt) {
+        const opts = elmt.componentOptions
+        const name = opts ? (opts.Ctor.options.name || opts.tag || '') : elmt.tag
+        console.error(`${warningMessage}: <${name}>`)
+      } else {
+        console.error(warningMessage);
+      }
+    }
+
     const props = {
       options: {
         type: Object,
@@ -38,6 +50,28 @@
 
       props,
 
+      data() {
+        // Get masonry gutter and colummWith classes
+        let masonryOptions
+        if (this.options && this.options.masonry) {
+          masonryOptions = {
+            gutter: this.options.masonry.gutter,
+            columnWidth: this.options.masonry.columnWidth
+          }
+          // Remove the first dot from className
+          Object.keys(masonryOptions).forEach((option) => {
+            const currentOption = masonryOptions[option];
+            if (typeof currentOption === 'string' && currentOption.length > 1) {
+              masonryOptions[option] = currentOption.substr(1)
+            }
+          })
+        }
+
+        return {
+          masonryOptions
+        }
+      },
+
       render(h) {
         const map = {}
         const prevChildren = this.prevChildren = this.children
@@ -45,18 +79,56 @@
         const children = this.children = []
         const removedIndex = this.removedIndex = []
 
-        rawChildren.forEach(elt => addClass(elt, this.itemSelector))
-
         for (let i = 0; i < rawChildren.length; i++) {
           const c = rawChildren[i]
           if (c.tag) {
             if (c.key != null && String(c.key).indexOf('__vlist') !== 0) {
+              if (map[c.key]) {
+                reportError('children keys must be unique', c)
+              }
+              // Add single grid item class
+              addClass(c, this.itemSelector)
               children.push(c)
               map[c.key] = c
+            // Check for gutter (gutter-sizer) or column-width (grid-sizer)
+            } else if (Object.keys(this.masonryOptions).length && c.data.attrs &&
+                (c.data.attrs.gutter || c.data.attrs['column-width'])) {
+              let newClass
+              const gutterKey = '$gutter-sizer'
+              const columnWidthKey = '$grid-sizer'
+              if (c.data.attrs.gutter) {
+                if (!this.masonryOptions.gutter) {
+                  reportError("masonry options don't include a gutter property", c)
+                } else if (this.masonryOptions.gutter !== c.data.attrs.gutter) {
+                  reportError("masonry options' gutter property isn't equal to the gutter sizer's gutter property", c)
+                }
+                c.key = gutterKey
+                newClass = c.data.attrs.gutter
+              } else {
+                if (!this.masonryOptions.columnWidth) {
+                  reportError("masonry options don't include a columnWidth property", c)
+                } else if (this.masonryOptions.columnWidth !== c.data.attrs['column-width']) {
+                  reportError("masonry options' columnWidth property isn't equal to the gutter sizer's column-width property", c)
+                }
+                c.key = columnWidthKey
+                newClass = c.data.attrs['column-width']
+              }
+              if (newClass) {
+                if (map[c.key]) {
+                  reportError('children keys must be unique, no duplicate gutter- or grid-sizers', c)
+                } else {
+                  // Add gutter-sizer or grid-sizer class
+                  addClass(c, newClass)
+                  children.push(c)
+                  map[c.key] = c
+                }
+              } else if (c.key === gutterKey) {
+                reportError("gutter-sizer doesn't have a gutter property", c)
+              } else {
+                reportError("grid-sizer doesn't have a column-width property", c)
+              }
             } else {
-              const opts = c.componentOptions
-              const name = opts ? (opts.Ctor.options.name || opts.tag || '') : c.tag
-              console.log(`Warning template error: isotope children must be keyed: <${name}>`)
+              reportError('children must be keyed', c)
             }
           }
         }

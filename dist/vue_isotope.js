@@ -16,6 +16,18 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
       return elmt.__underlying_element;
     }
 
+    // Reports errors
+    function reportError(message, elmt) {
+      var warningMessage = message ? "Warning template error: isotope " + message : 'Warning template error: isotope undefined error';
+      if (elmt) {
+        var opts = elmt.componentOptions;
+        var name = opts ? opts.Ctor.options.name || opts.tag || '' : elmt.tag;
+        console.error(warningMessage + ": <" + name + ">");
+      } else {
+        console.error(warningMessage);
+      }
+    }
+
     var props = {
       options: {
         type: Object,
@@ -40,29 +52,82 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
     var isotopeComponent = {
       props: props,
 
-      render: function render(h) {
-        var _this = this;
+      data: function data() {
+        // Get masonry gutter and colummWith classes
+        var masonryOptions = void 0;
+        if (this.options && this.options.masonry) {
+          masonryOptions = {
+            gutter: this.options.masonry.gutter,
+            columnWidth: this.options.masonry.columnWidth
+            // Remove the first dot from className
+          };Object.keys(masonryOptions).forEach(function (option) {
+            var currentOption = masonryOptions[option];
+            if (typeof currentOption === 'string' && currentOption.length > 1) {
+              masonryOptions[option] = currentOption.substr(1);
+            }
+          });
+        }
 
+        return {
+          masonryOptions: masonryOptions
+        };
+      },
+      render: function render(h) {
         var map = {};
         var prevChildren = this.prevChildren = this.children;
         var rawChildren = this.$slots.default || [];
         var children = this.children = [];
         var removedIndex = this.removedIndex = [];
 
-        rawChildren.forEach(function (elt) {
-          return addClass(elt, _this.itemSelector);
-        });
-
         for (var i = 0; i < rawChildren.length; i++) {
           var c = rawChildren[i];
           if (c.tag) {
             if (c.key != null && String(c.key).indexOf('__vlist') !== 0) {
+              if (map[c.key]) {
+                reportError('children keys must be unique', c);
+              }
+              // Add single grid item class
+              addClass(c, this.itemSelector);
               children.push(c);
               map[c.key] = c;
+              // Check for gutter (gutter-sizer) or column-width (grid-sizer)
+            } else if (Object.keys(this.masonryOptions).length && c.data.attrs && (c.data.attrs.gutter || c.data.attrs['column-width'])) {
+              var newClass = void 0;
+              var gutterKey = '$gutter-sizer';
+              var columnWidthKey = '$grid-sizer';
+              if (c.data.attrs.gutter) {
+                if (!this.masonryOptions.gutter) {
+                  reportError("masonry options don't include a gutter property", c);
+                } else if (this.masonryOptions.gutter !== c.data.attrs.gutter) {
+                  reportError("masonry options' gutter property isn't equal to the gutter sizer's gutter property", c);
+                }
+                c.key = gutterKey;
+                newClass = c.data.attrs.gutter;
+              } else {
+                if (!this.masonryOptions.columnWidth) {
+                  reportError("masonry options don't include a columnWidth property", c);
+                } else if (this.masonryOptions.columnWidth !== c.data.attrs['column-width']) {
+                  reportError("masonry options' columnWidth property isn't equal to the gutter sizer's column-width property", c);
+                }
+                c.key = columnWidthKey;
+                newClass = c.data.attrs['column-width'];
+              }
+              if (newClass) {
+                if (map[c.key]) {
+                  reportError('children keys must be unique, no duplicate gutter- or grid-sizers', c);
+                } else {
+                  // Add gutter-sizer or grid-sizer class
+                  addClass(c, newClass);
+                  children.push(c);
+                  map[c.key] = c;
+                }
+              } else if (c.key === gutterKey) {
+                reportError("gutter-sizer doesn't have a gutter property", c);
+              } else {
+                reportError("grid-sizer doesn't have a column-width property", c);
+              }
             } else {
-              var opts = c.componentOptions;
-              var name = opts ? opts.Ctor.options.name || opts.tag || '' : c.tag;
-              console.log("Warning template error: isotope children must be keyed: <" + name + ">");
+              reportError('children must be keyed', c);
             }
           }
         }
@@ -82,38 +147,38 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
         return h('div', null, displayChildren);
       },
       mounted: function mounted() {
-        var _this2 = this;
+        var _this = this;
 
         var options = _.merge({}, this.compiledOptions);
         var update = function update(object) {
           _.forOwn(object, function (value, key) {
             object[key] = function (itemElement) {
-              var res = getItemVm(itemElement);return value.call(_this2, res.vm, res.index);
+              var res = getItemVm(itemElement);return value.call(_this, res.vm, res.index);
             };
           });
         };
         update(options.getSortData);
         update(options.getFilterData);
+        this._isotopeOptions = options;
         if (options.filter) {
           options.filter = this.buildFilterFunction(options.filter);
         }
 
         this.$nextTick(function () {
-          _this2._isotopeOptions = options;
-          _this2.link();
-          _this2.listen();
-          var iso = new Isotope(_this2.$el, options);
+          _this.link();
+          _this.listen();
+          var iso = new Isotope(_this.$el, options);
 
           iso._requestUpdate = function () {
             if (iso._willUpdate) return;
 
             iso._willUpdate = true;
-            _this2.$nextTick(function () {
+            _this.$nextTick(function () {
               iso.arrange();
               iso._willUpdate = false;
             });
           };
-          _this2.iso = iso;
+          _this.iso = iso;
         });
       },
       beforeDestroy: function beforeDestroy() {
@@ -130,7 +195,7 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
         this._oldChidren = Array.prototype.slice.call(this.$el.children);
       },
       updated: function updated() {
-        var _this3 = this;
+        var _this2 = this;
 
         if (!this.iso) {
           return;
@@ -139,7 +204,7 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
         var newChildren = [].concat(_toConsumableArray(this.$el.children));
         var added = _.difference(newChildren, this._oldChidren);
         var removed = this.removedIndex.map(function (index) {
-          return _this3.$el.children[index];
+          return _this2.$el.children[index];
         });
 
         this.cleanupNodes();
@@ -157,32 +222,32 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
 
       methods: {
         cleanupNodes: function cleanupNodes() {
-          var _this4 = this;
+          var _this3 = this;
 
           this.removedIndex.reverse();
           this.removedIndex.forEach(function (index) {
-            return _this4._vnode.children.splice(index, 1);
+            return _this3._vnode.children.splice(index, 1);
           });
         },
         link: function link() {
-          var _this5 = this;
+          var _this4 = this;
 
           var slots = this.$slots.default || [];
           slots.forEach(function (slot, index) {
             var elmt = slot.elm;
-            if (elmt) elmt.__underlying_element = { vm: _this5.list[index], index: index };
+            if (elmt) elmt.__underlying_element = { vm: _this4.list[index], index: index };
           });
         },
         listen: function listen() {
-          var _this6 = this;
+          var _this5 = this;
 
           this._listeners = _(this.compiledOptions.getSortData).map(function (sort) {
-            return _.map(_this6.list, function (collectionElement, index) {
-              return _this6.$watch(function () {
+            return _.map(_this5.list, function (collectionElement, index) {
+              return _this5.$watch(function () {
                 return sort(collectionElement);
               }, function () {
-                _this6.iso.updateSortData();
-                _this6.iso._requestUpdate();
+                _this5.iso.updateSortData();
+                _this5.iso._requestUpdate();
               });
             });
           }).flatten().value();
@@ -196,15 +261,15 @@ function _toConsumableArray(arr) { if (Array.isArray(arr)) { for (var i = 0, arr
           this.$emit("sort", name);
         },
         buildFilterFunction: function buildFilterFunction(name) {
-          var _this7 = this;
+          var _this6 = this;
 
           var filter = this._isotopeOptions.getFilterData[name];
           this._filterlistener = this.$watch(function () {
-            return _.map(_this7.list, function (el, index) {
-              return _this7.options.getFilterData[name](el, index);
+            return _.map(_this6.list, function (el, index) {
+              return _this6.options.getFilterData[name](el, index);
             });
           }, function () {
-            _this7.iso._requestUpdate();
+            _this6.iso._requestUpdate();
           });
           return filter;
         },
